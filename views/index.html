@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload and Recover Files</title>
+</head>
+<body>
+  <h1>Upload RAW File</h1>
+  <form action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" />
+    <button type="submit">Upload</button>
+  </form>
+  <h2>Uploaded Files</h2>
+  <ul>
+    <% uploads.forEach(function(upload) { %>
+      <li>
+        <%= upload.originalFilename %> 
+        <form action="/recover/<%= upload._id %>" method="post" style="display:inline;">
+          <button type="submit">Recover</button>
+        </form>
+        <form action="/delete/<%= upload._id %>" method="post" style="display:inline;">
+          <button type="submit">Delete</button>
+        </form>
+      </li>
+    <% }); %>
+  </ul>
+
+  <h2>Recovered Files</h2>
+  <ul>
+    <% recoveredFiles.forEach(function(folder) { %>
+      <li>
+        <%= folder %>
+        <form action="/download/<%= folder %>" method="post" style="display:inline;">
+          <button type="submit">Download</button>
+        </form>
+        <form action="/delete-recovered/<%= folder %>" method="post" style="display:inline;">
+          <button type="submit">Delete</button>
+        </form>
+      </li>
+    <% }); %>
+  </ul>
+</body>
+</html>
