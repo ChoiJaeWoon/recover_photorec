@@ -1,0 +1,20 @@
+0,rb30Days=0,rbUSMode=0,rnDay=0;
+    int sDay=0,sMonth=0, sYear=0,sbLastDayMode=0, sbLastDay=0,sb30Days=0,sbUSMode=0,snDay=0;
+    ScaDate( nNullDate,nSettle,nBase,&sDay,&sMonth,&sYear,&sbLastDayMode,&sbLastDay,&sb30Days,&sbUSMode,&snDay);
+    ScaDate( nNullDate,aDate,nBase,&rDay,&rMonth,&rYear,&rbLastDayMode,&rbLastDay,&rb30Days,&rbUSMode,&rnDay);
+    rYear=sYear;
+    setDay(rDay,rMonth,rYear,rbLastDay,rb30Days,&rnDay);
+    if(checklessthan(rYear,sYear,rMonth,sMonth,rnDay,snDay,rbLastDay,sbLastDay,rDay,sDay))
+    {
+        rYear+=1;
+        setDay(rDay,rMonth,rYear,rbLastDay,rb30Days,&rnDay);
+    }
+    while(checklessthan(sYear,rYear,sMonth,rMonth,snDay,rnDay,sbLastDay,rbLastDay,sDay,rDay))
+    {
+        double d = -1*(12/nFreq);
+        addMonths(rb30Days,rbLastDay,&rnDay,rDay,&rMonth,d,&rYear);
+    }
+    int nLastDay = DaysInMonth( rMonth, rYear );
+    int nRealDay = (rbLastDayMode && rbLastDay) ? nLastDay :min( nLastDay, rDay );
+    return DateToDays( nRealDay, rMonth, rYear ) - nNullDate;
+}
