@@ -1,0 +1,22 @@
+{
+  "name": "disk-image-recovery",
+  "version": "1.0.0",
+  "description": "A Node.js app to upload and recover disk images",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "child_process": "^1.0.2",
+    "ejs": "^3.1.10",
+    "express": "^4.19.2",
+    "mongoose": "^8.4.0",
+    "multer": "^1.4.5-lts.1",
+    "mysql": "^2.18.1",
+    "mysql2": "^3.9.8"
+  }
+}
