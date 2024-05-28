@@ -14,15 +14,20 @@ const port = process.env.PORT || 3000;
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
+const mongoURI = process.env.MONGODB_URI;
+
+if (!mongoURI) {
+  console.error("MONGODB_URI is not defined");
+  process.exit(1);
+}
+
+mongoose.connect(mongoURI)
   .then(() => {
     console.log("Connected to MongoDB.");
   })
   .catch((err) => {
     console.error("Database connection failed:", err);
+    process.exit(1); // 연결 실패 시 애플리케이션 종료
   });
 
 const conn = mongoose.connection;
@@ -47,10 +52,16 @@ app.set("view engine", "html");
 app.engine("html", ejs.renderFile);
 app.set("views", path.join(__dirname, "views"));
 
+// Ensure temp directory exists
+const tempDir = path.join(__dirname, "temp");
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
+
 app.get("/", async (req, res) => {
   try {
     const uploads = await Upload.find();
-    const recoveredFiles = fs.readdirSync(path.join(__dirname, "temp")).filter(file => fs.lstatSync(path.join(__dirname, "temp", file)).isDirectory());
+    const recoveredFiles = fs.readdirSync(tempDir).filter(file => fs.lstatSync(path.join(tempDir, file)).isDirectory());
     res.render("index", { uploads, recoveredFiles });
   } catch (err) {
     console.error("Error fetching data from DB:", err);
@@ -89,14 +100,14 @@ app.post("/recover/:id", async (req, res) => {
       return res.status(404).send("File not found");
     }
 
-    const tempFilePath = path.join(__dirname, "temp", file.originalFilename);
+    const tempFilePath = path.join(tempDir, file.originalFilename);
     const downloadStream = gridFSBucket.openDownloadStream(file.fileId);
     const writableStream = fs.createWriteStream(tempFilePath);
 
     downloadStream.pipe(writableStream);
 
     writableStream.on('close', () => {
-      const outputDir = path.join(__dirname, "temp", file._id.toString());
+      const outputDir = path.join(tempDir, file._id.toString());
 
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
@@ -156,7 +167,7 @@ app.post("/delete/:id", async (req, res) => {
 
 app.post("/delete-recovered/:folder", async (req, res) => {
   const folderName = req.params.folder;
-  const outputDir = path.join(__dirname, "temp", folderName);
+  const outputDir = path.join(tempDir, folderName);
 
   if (!fs.existsSync(outputDir)) {
     return res.status(404).send("Folder not found");
@@ -168,7 +179,7 @@ app.post("/delete-recovered/:folder", async (req, res) => {
 
 app.post("/download/:id", async (req, res) => {
   const folderName = req.params.id;
-  const outputDir = path.join(__dirname, "temp", folderName);
+  const outputDir = path.join(tempDir, folderName);
 
   if (!fs.existsSync(outputDir)) {
     return res.status(404).send("File not found");
