@@ -10,7 +10,7 @@ const stream = require("stream");
 const { GridFSBucket } = require("mongodb");
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 55000;
 
 const upload = multer({ storage: multer.memoryStorage() });
 
