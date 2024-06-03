@@ -119,7 +119,6 @@ app.post("/recover/:id", async (req, res) => {
         ).replace(/\\/g, '\\\\');
         const outputDirEscaped = outputDir.replace(/\\/g, '\\\\');
         const command = `"${photorecPath}" /log /d "${outputDirEscaped}" "${filepath.replace(/\\/g, '\\\\')}"`;
-      };
 
 
         console.log("Executing command:", command);
