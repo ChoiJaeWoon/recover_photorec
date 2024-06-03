@@ -115,10 +115,12 @@ app.post("/recover/:id", async (req, res) => {
 
       const runPhotoRec = (filepath) => {
         const photorecPath = path.join(
-          "C:", "testdisk-7.2", "photorec_win.exe"
+          "/", "testdisk", "photorec_win.exe"
         ).replace(/\\/g, '\\\\');
         const outputDirEscaped = outputDir.replace(/\\/g, '\\\\');
         const command = `"${photorecPath}" /log /d "${outputDirEscaped}" "${filepath.replace(/\\/g, '\\\\')}"`;
+      };
+
 
         console.log("Executing command:", command);
 
