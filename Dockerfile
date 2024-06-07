@@ -12,6 +12,9 @@ RUN npm install
 # Copy the rest of the application code
 COPY . .
 
+# Grant execution permissions to PhotoRec
+RUN chmod +x /app/tools/photorec_static
+
 # Build the application (if you have any build steps)
 # RUN npm run build
 
