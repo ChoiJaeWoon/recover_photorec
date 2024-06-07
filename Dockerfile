@@ -12,9 +12,6 @@ RUN npm install
 # Copy the rest of the application code
 COPY . .
 
-# Grant execution permissions to PhotoRec
-RUN chmod +x /app/tools/photorec_static
-
 # Build the application (if you have any build steps)
 # RUN npm run build
 
@@ -32,6 +29,9 @@ COPY --from=builder /app /app
 
 # Install necessary tools
 RUN apt-get update && apt-get install -y procps && apt-get clean
+
+# Grant execution permissions to PhotoRec in the final stage
+RUN chmod +x /app/tools/photorec_static
 
 # Expose ports
 EXPOSE 80
