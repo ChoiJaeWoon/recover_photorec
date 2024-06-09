@@ -7,12 +7,12 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm install
 
 # Copy the rest of the application code
 COPY . .
 
-# Grant execution permissions to PhotoRec in the builder stage
+# Grant execution permissions to PhotoRec in the final stage
 RUN chmod +x /app/tools/photorec_static
 
 # Stage 2: Setup Nginx and the application
@@ -30,12 +30,11 @@ COPY --from=builder /app /app
 # Install necessary tools
 RUN apt-get update && apt-get install -y procps && apt-get clean
 
-# Ensure permissions are set correctly
-USER root
-RUN chmod +x /app/tools/photorec_static
+# Install Python and build tools for node-pty
+RUN apt-get install -y python3 python3-pip build-essential
 
-# Set non-root user
-USER nginx
+# Grant execution permissions to PhotoRec in the final stage
+RUN chmod +x /app/tools/photorec_static
 
 # Expose ports
 EXPOSE 80
