@@ -1,5 +1,5 @@
 # Stage 1: Build the Node.js application
-FROM node:20 AS builder
+FROM node:16-buster AS builder
 
 WORKDIR /app
 
@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci --only=production
 
 # Copy the rest of the application code
 COPY . .
@@ -31,6 +31,7 @@ COPY --from=builder /app /app
 RUN apt-get update && apt-get install -y procps && apt-get clean
 
 # Grant execution permissions to PhotoRec as root
+USER root
 RUN chmod +x /app/tools/photorec_static
 
 # Set non-root user
@@ -41,4 +42,3 @@ EXPOSE 80
 
 # Start Nginx server
 CMD ["nginx", "-g", "daemon off;"]
-
