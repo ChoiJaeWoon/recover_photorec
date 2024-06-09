@@ -8,8 +8,14 @@ const mongoose = require("mongoose");
 const archiver = require("archiver");
 const stream = require("stream");
 const { GridFSBucket } = require("mongodb");
+const http = require("http");
+const socketIo = require("socket.io");
+const pty = require("node-pty");
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
 const port = process.env.PORT || 55000;
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -27,7 +33,7 @@ mongoose.connect(mongoURI)
   })
   .catch((err) => {
     console.error("Database connection failed:", err);
-    process.exit(1); // 연결 실패 시 애플리케이션 종료
+    process.exit(1);
   });
 
 const conn = mongoose.connection;
@@ -51,6 +57,8 @@ const Upload = mongoose.model('Upload', uploadSchema);
 app.set("view engine", "html");
 app.engine("html", ejs.renderFile);
 app.set("views", path.join(__dirname, "views"));
+
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Ensure temp directory exists
 const tempDir = path.join(__dirname, "temp");
@@ -149,6 +157,21 @@ app.post("/recover/:id", async (req, res) => {
   }
 });
 
+app.post("/delete/:id", async (req, res) => {
+  const uploadId = req.params.id;
+
+  try {
+    const file = await Upload.findById(uploadId);
+    if (file) {
+      await gridFSBucket.delete(file.fileId);
+    }
+    await Upload.findByIdAndDelete(uploadId);
+    res.redirect("/");
+  } catch (err) {
+    console.error("Error deleting upload from DB:", err);
+    res.status(500).send("Internal Server Error");
+  }
+});
 
 app.post("/delete-recovered/:folder", async (req, res) => {
   const folderName = req.params.folder;
@@ -192,6 +215,36 @@ app.post("/download/:id", async (req, res) => {
   zip.finalize();
 });
 
-app.listen(port, () => {
+io.on("connection", (socket) => {
+  console.log("Client connected");
+
+  const shell = process.env.SHELL || "bash";
+  const ptyProcess = pty.spawn(shell, [], {
+    name: "xterm-color",
+    cols: 80,
+    rows: 24,
+    cwd: process.env.HOME,
+    env: process.env
+  });
+
+  ptyProcess.on("data", (data) => {
+    socket.emit("output", data);
+  });
+
+  socket.on("input", (input) => {
+    ptyProcess.write(input);
+  });
+
+  socket.on("resize", (size) => {
+    ptyProcess.resize(size.cols, size.rows);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected");
+    ptyProcess.kill();
+  });
+});
+
+server.listen(port, () => {
   console.log(`Server running at http://localhost:${port}/`);
 });
