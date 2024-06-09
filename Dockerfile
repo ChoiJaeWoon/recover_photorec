@@ -12,8 +12,8 @@ RUN npm install
 # Copy the rest of the application code
 COPY . .
 
-# Build the application (if you have any build steps)
-# RUN npm run build
+# Grant execution permissions to PhotoRec in the builder stage
+RUN chmod +x /app/tools/photorec_static
 
 # Stage 2: Setup Nginx and the application
 FROM nginx:latest
@@ -30,11 +30,15 @@ COPY --from=builder /app /app
 # Install necessary tools
 RUN apt-get update && apt-get install -y procps && apt-get clean
 
-# Grant execution permissions to PhotoRec in the final stage
+# Grant execution permissions to PhotoRec as root
 RUN chmod +x /app/tools/photorec_static
+
+# Set non-root user
+USER nginx
 
 # Expose ports
 EXPOSE 80
 
 # Start Nginx server
 CMD ["nginx", "-g", "daemon off;"]
+
