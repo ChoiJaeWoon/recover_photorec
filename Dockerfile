@@ -30,7 +30,7 @@ COPY --from=builder /app /app
 # Install necessary tools
 RUN apt-get update && apt-get install -y procps && apt-get clean
 
-# Grant execution permissions to PhotoRec as root
+# Ensure permissions are set correctly
 USER root
 RUN chmod +x /app/tools/photorec_static
 
