@@ -118,19 +118,19 @@ app.post("/recover/:id", async (req, res) => {
         const outputDirEscaped = outputDir.replace(/\\/g, '\\\\');
         const command = `"${photorecPath}" /log /d "${outputDirEscaped}" /cmd "${filepath.replace(/\\/g, '\\\\')}" search`;
 
-
-
         console.log("Executing command:", command);
 
         exec(command, { cwd: path.resolve(__dirname) }, async (error, stdout, stderr) => {
           if (error) {
             console.error(`Error running PhotoRec: ${error.message}`);
+            console.error(`stderr: ${stderr}`);
             return res.status(500).send("Internal Server Error");
           }
           if (stderr) {
-            console.error(`Stderr: ${stderr}`);
-            return res.status(500).send("Internal Server Error");
+            console.error(`stderr: ${stderr}`);
           }
+
+          console.log(`stdout: ${stdout}`);
 
           const recoveredFiles = fs.readdirSync(outputDir);
           recoveredFiles.forEach(file => console.log(`Recovered file: ${file}`));
@@ -149,21 +149,6 @@ app.post("/recover/:id", async (req, res) => {
   }
 });
 
-app.post("/delete/:id", async (req, res) => {
-  const uploadId = req.params.id;
-
-  try {
-    const file = await Upload.findById(uploadId);
-    if (file) {
-      await gridFSBucket.delete(file.fileId);
-    }
-    await Upload.findByIdAndDelete(uploadId);
-    res.redirect("/");
-  } catch (err) {
-    console.error("Error deleting upload from DB:", err);
-    res.status(500).send("Internal Server Error");
-  }
-});
 
 app.post("/delete-recovered/:folder", async (req, res) => {
   const folderName = req.params.folder;
