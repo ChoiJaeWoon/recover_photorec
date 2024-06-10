@@ -27,8 +27,11 @@ COPY nginx.conf /etc/nginx/nginx.conf
 # Copy built application from builder stage
 COPY --from=builder /app /app
 
-# Install necessary tools
-RUN apt-get update && apt-get install -y procps python3 python3-pip build-essential && apt-get clean
+# Install necessary tools and dependencies for PhotoRec
+RUN apt-get update && \
+    apt-get install -y procps python3 python3-pip build-essential \
+    libncurses5 libncursesw5 && \
+    apt-get clean
 
 # Grant execution permissions to PhotoRec
 RUN chmod +x /app/tools/photorec_static
