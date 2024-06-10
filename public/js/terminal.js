@@ -2,25 +2,27 @@ document.addEventListener("DOMContentLoaded", () => {
   const socket = io();
 
   const terminalContainer = document.getElementById("terminal-container");
-  const xterm = new Terminal();
-  xterm.open(terminalContainer);
+  const term = new Terminal();
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(terminalContainer);
+  fitAddon.fit();
 
   socket.on("output", (data) => {
-    xterm.write(data);
+    term.write(data);
   });
 
-  xterm.onKey(e => {
+  term.onKey(e => {
     const input = e.key;
     socket.emit("input", input);
   });
 
-  socket.on("photorec-output", (data) => {
-    xterm.write(data);
+  window.addEventListener("resize", () => {
+    fitAddon.fit();
+    socket.emit("resize", { cols: term.cols, rows: term.rows });
   });
 
-  window.addEventListener("resize", () => {
-    const cols = xterm.cols;
-    const rows = xterm.rows;
-    socket.emit("resize", { cols, rows });
-  });
+  // Fit terminal initially
+  fitAddon.fit();
+  socket.emit("resize", { cols: term.cols, rows: term.rows });
 });
