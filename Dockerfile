@@ -30,7 +30,7 @@ COPY --from=builder /app /app
 # Install necessary tools and dependencies for PhotoRec
 RUN apt-get update && \
     apt-get install -y procps python3 python3-pip build-essential \
-    libncurses5 libncursesw5 && \
+    sudo libncurses5 libncursesw5 && \
     apt-get clean
 
 # Grant execution permissions to PhotoRec
