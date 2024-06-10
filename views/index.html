@@ -56,37 +56,6 @@
 
   <div id="terminal-container"></div>
 
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const socket = io();
-
-      const term = new Terminal();
-      const fitAddon = new FitAddon.FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(document.getElementById("terminal-container"));
-      fitAddon.fit();
-
-      term.onData(data => {
-        socket.emit("input", data);
-      });
-
-      socket.on("output", data => {
-        term.write(data);
-      });
-
-      socket.on("photorec-output", data => {
-        term.write(data);
-      });
-
-      window.addEventListener("resize", () => {
-        fitAddon.fit();
-        socket.emit("resize", { cols: term.cols, rows: term.rows });
-      });
-
-      // Fit terminal initially
-      fitAddon.fit();
-      socket.emit("resize", { cols: term.cols, rows: term.rows });
-    });
-  </script>
+  <script src="/js/terminal.js"></script>
 </body>
 </html>
