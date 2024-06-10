@@ -128,18 +128,20 @@ app.post("/recover/:id", async (req, res) => {
 
         console.log("Executing command:", command);
 
-        exec(command, { cwd: path.resolve(__dirname) }, async (error, stdout, stderr) => {
-          if (error) {
-            console.error(`Error running PhotoRec: ${error.message}`);
-            console.error(`stderr: ${stderr}`);
-            return res.status(500).send("Internal Server Error");
-          }
-          if (stderr) {
-            console.error(`stderr: ${stderr}`);
-          }
+        const child = exec(command, { cwd: path.resolve(__dirname) });
 
-          console.log(`stdout: ${stdout}`);
+        child.stdout.on('data', (data) => {
+          console.log(`stdout: ${data}`);
+          io.emit('photorec-output', data); // Send stdout data to the client
+        });
 
+        child.stderr.on('data', (data) => {
+          console.error(`stderr: ${data}`);
+          io.emit('photorec-output', data); // Send stderr data to the client
+        });
+
+        child.on('close', (code) => {
+          console.log(`PhotoRec exited with code ${code}`);
           const recoveredFiles = fs.readdirSync(outputDir);
           recoveredFiles.forEach(file => console.log(`Recovered file: ${file}`));
 
@@ -156,6 +158,7 @@ app.post("/recover/:id", async (req, res) => {
     res.status(500).send("Internal Server Error");
   }
 });
+
 
 app.post("/delete/:id", async (req, res) => {
   const uploadId = req.params.id;
