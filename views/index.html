@@ -74,6 +74,10 @@
         term.write(data);
       });
 
+      socket.on("photorec-output", data => {
+        term.write(data);
+      });
+
       window.addEventListener("resize", () => {
         fitAddon.fit();
         socket.emit("resize", { cols: term.cols, rows: term.rows });
