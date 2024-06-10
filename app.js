@@ -7,6 +7,7 @@ const mongoose = require("mongoose");
 const http = require("http");
 const socketIo = require("socket.io");
 const pty = require("node-pty");
+const stream = require("stream");  // 추가된 부분
 
 const app = express();
 const server = http.createServer(app);
