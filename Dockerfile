@@ -15,14 +15,11 @@ COPY . .
 # Grant execution permissions to PhotoRec
 RUN chmod +x /app/tools/photorec_static
 
-# Stage 2: Setup Nginx and the application
-FROM nginx:latest
+# Stage 2: Setup the application with necessary tools
+FROM node:16-buster
 
 # Set the working directory
 WORKDIR /app
-
-# Copy Nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
 
 # Copy built application from builder stage
 COPY --from=builder /app /app
@@ -30,14 +27,15 @@ COPY --from=builder /app /app
 # Install necessary tools and dependencies for PhotoRec
 RUN apt-get update && \
     apt-get install -y procps python3 python3-pip build-essential \
-    sudo libncurses5 libncursesw5 && \
+    libncurses5 libncursesw5 && \
     apt-get clean
 
 # Grant execution permissions to PhotoRec
 RUN chmod +x /app/tools/photorec_static
 
 # Expose ports
-EXPOSE 80
+EXPOSE 55000
 
-# Start Nginx server
-CMD ["nginx", "-g", "daemon off;"]
+# Start the Node.js application as root
+USER root
+CMD ["node", "app.js"]
