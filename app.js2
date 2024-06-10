@@ -1,72 +1,76 @@
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
-const { spawn } = require("child_process");
+const { exec, spawn } = require("child_process");
 const fs = require("fs");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
+const archiver = require("archiver");
+const stream = require("stream");
+const { GridFSBucket } = require("mongodb");
+const http = require("http");
+const socketIo = require("socket.io");
+const pty = require("node-pty");
 
 const app = express();
-const port = 3000;
+const server = http.createServer(app);
+const io = socketIo(server);
 
-// MongoDB 설정
-mongoose.connect("mongodb://admin:0000@svc.sel5.cloudtype.app:30583/")
+const port = process.env.PORT || 55000;
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+const mongoURI = process.env.MONGODB_URI;
+
+if (!mongoURI) {
+  console.error("MONGODB_URI is not defined");
+  process.exit(1);
+}
+
+mongoose.connect(mongoURI)
   .then(() => {
-    console.log("MongoDB에 연결되었습니다.");
+    console.log("Connected to MongoDB.");
   })
   .catch((err) => {
-    console.error("MongoDB 연결 오류:", err);
+    console.error("Database connection failed:", err);
+    process.exit(1);
   });
 
-// 모델 정의
-const UploadSchema = new mongoose.Schema({
-  original_filename: String,
-  file_path: String,
+const conn = mongoose.connection;
+let gridFSBucket;
+
+conn.once("open", () => {
+  gridFSBucket = new GridFSBucket(conn.db, {
+    bucketName: 'uploads'
+  });
+  console.log("GridFS Bucket set up.");
 });
 
-const OutputSchema = new mongoose.Schema({
-  upload_id: mongoose.Schema.Types.ObjectId,
-  filename: String,
-  file_path: String,
+const uploadSchema = new mongoose.Schema({
+  originalFilename: { type: String, required: true },
+  fileId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  uploadTime: { type: Date, default: Date.now }
 });
 
-const Upload = mongoose.model("Upload", UploadSchema);
-const Output = mongoose.model("Output", OutputSchema);
-
-// 서버를 MongoDB 연결 후 시작합니다.
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}/`);
-});
-
-// Multer 설정
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const dir = "uploads/";
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + "-" + file.originalname);
-  },
-});
-
-const upload = multer({ storage: storage });
+const Upload = mongoose.model('Upload', uploadSchema);
 
 app.set("view engine", "html");
 app.engine("html", ejs.renderFile);
 app.set("views", path.join(__dirname, "views"));
 
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Ensure temp directory exists
+const tempDir = path.join(__dirname, "temp");
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
+
 app.get("/", async (req, res) => {
   try {
-    const uploadsResults = await Upload.find({});
-    const recoveredResults = await Output.distinct("upload_id");
-
-    res.render("index", {
-      uploads: uploadsResults,
-      recoveredFiles: recoveredResults,
-    });
+    const uploads = await Upload.find();
+    const recoveredFiles = fs.readdirSync(tempDir).filter(file => fs.lstatSync(path.join(tempDir, file)).isDirectory());
+    res.render("index", { uploads, recoveredFiles });
   } catch (err) {
     console.error("Error fetching data from DB:", err);
     res.status(500).send("Internal Server Error");
@@ -74,24 +78,28 @@ app.get("/", async (req, res) => {
 });
 
 app.post("/upload", upload.single("file"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).send("No file uploaded");
-  }
-
   const originalFilename = req.file.originalname;
-  const filePath = req.file.path;
 
   try {
-    await Upload.create({ original_filename: originalFilename, file_path: filePath });
-    res.redirect("/");
+    const readableStream = new stream.PassThrough();
+    readableStream.end(req.file.buffer);
+
+    const uploadStream = gridFSBucket.openUploadStream(originalFilename);
+    readableStream.pipe(uploadStream);
+
+    uploadStream.on('finish', async () => {
+      const newUpload = new Upload({ originalFilename, fileId: uploadStream.id });
+      await newUpload.save();
+      res.redirect("/");
+    });
+
   } catch (err) {
     console.error("Error saving upload to DB:", err);
-    res.status(500).send("Internal Server Error: " + err.message);
+    res.status(500).send("Internal Server Error");
   }
 });
 
-app.get("/recover/:id", async (req, res) => {
-  app.use(express.static(path.join(__dirname, 'views')));
+app.post("/recover/:id", async (req, res) => {
   const uploadId = req.params.id;
 
   try {
@@ -100,118 +108,131 @@ app.get("/recover/:id", async (req, res) => {
       return res.status(404).send("File not found");
     }
 
-    const tempFilePath = path.join(__dirname, file.file_path);
-    const outputDir = path.join(__dirname, "temp", file._id.toString());
-    const recoveredDir = path.join(__dirname, "recovered_files", file._id.toString());
-    const logFilePath = path.join(__dirname, `photorec_log_${uploadId}.txt`);
-    console.log(`Output Directory: ${outputDir}`);
-    console.log(`Recovered Directory: ${recoveredDir}`);
+    const tempFilePath = path.join(tempDir, file.originalFilename);
+    const downloadStream = gridFSBucket.openDownloadStream(file.fileId);
+    const writableStream = fs.createWriteStream(tempFilePath);
 
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
+    downloadStream.pipe(writableStream);
 
-    if (!fs.existsSync(recoveredDir)) {
-      fs.mkdirSync(recoveredDir, { recursive: true });
-    }
+    writableStream.on('close', () => {
+      const outputDir = path.join(tempDir, file._id.toString());
+      const recoveredDir = path.join(__dirname, "recovered_files", file._id.toString());
+      const logFilePath = path.join(__dirname, `photorec_log_${uploadId}.txt`);
 
-    const runPhotoRec = (tempFilePath, outputDir, res, uploadId, recoveredDir) => {
-      const photorecPath = "/app/uploads/testdisk-7.2-WIP/photorec_static";
-      const commandArgs = ["/log", "/d", outputDir, tempFilePath];
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
 
-      console.log("Executing command:", photorecPath, commandArgs);
+      if (!fs.existsSync(recoveredDir)) {
+        fs.mkdirSync(recoveredDir, { recursive: true });
+      }
 
-      const child = spawn(photorecPath, commandArgs, { shell: true });
+      const runPhotoRec = (tempFilePath, outputDir, res, uploadId, recoveredDir) => {
+        const photorecPath = "/app/uploads/testdisk-7.2-WIP/photorec_static";
+        const commandArgs = ["/log", "/d", outputDir, tempFilePath];
 
-      let logData = "";
+        console.log("Executing command:", photorecPath, commandArgs);
 
-      child.stdout.on("data", (data) => {
-        console.log(`stdout: ${data}`);
-        logData += data.toString();
-      });
+        const child = spawn(photorecPath, commandArgs, { shell: true });
 
-      child.stderr.on("data", (data) => {
-        console.error(`stderr: ${data}`);
-        logData += data.toString();
-      });
+        let logData = "";
 
-      child.on("error", (error) => {
-        console.error(`Error running PhotoRec: ${error.message}`);
-        res.status(500).send("Internal Server Error");
-      });
+        child.stdout.on("data", (data) => {
+          console.log(`stdout: ${data}`);
+          io.emit('photorec-output', data.toString());
+          logData += data.toString();
+        });
 
-      child.on("exit", (code) => {
-        console.log(`PhotoRec exited with code ${code}`);
-        fs.writeFileSync(logFilePath, logData);
-        if (code !== 0) {
-          console.error(`PhotoRec exited with code ${code}`);
-          const logContent = fs.readFileSync(logFilePath, "utf8");
-          console.error(`PhotoRec log: ${logContent}`);
-          res.status(500).send(`PhotoRec exited with code ${code}\n${logContent}`);
-          return;
-        }
+        child.stderr.on("data", (data) => {
+          console.error(`stderr: ${data}`);
+          io.emit('photorec-output', data.toString());
+          logData += data.toString();
+        });
 
-        setTimeout(async () => {
-          const getAllFiles = (dirPath, arrayOfFiles) => {
-            let files = fs.readdirSync(dirPath);
+        child.on("error", (error) => {
+          console.error(`Error running PhotoRec: ${error.message}`);
+          res.status(500).send("Internal Server Error");
+        });
 
-            arrayOfFiles = arrayOfFiles || [];
-
-            files.forEach((file) => {
-              if (fs.statSync(path.join(dirPath, file)).isDirectory()) {
-                arrayOfFiles = getAllFiles(path.join(dirPath, file), arrayOfFiles);
-              } else {
-                arrayOfFiles.push(path.join(dirPath, file));
-              }
-            });
-
-            return arrayOfFiles;
-          };
-
-          const recoveredFiles = getAllFiles(outputDir);
-          console.log(`Recovered files: ${recoveredFiles}`);
-
-          if (recoveredFiles.length === 0) {
-            console.error("No files recovered by PhotoRec.");
-            return res.status(500).send("No files recovered");
+        child.on("exit", (code) => {
+          console.log(`PhotoRec exited with code ${code}`);
+          fs.writeFileSync(logFilePath, logData);
+          if (code !== 0) {
+            console.error(`PhotoRec exited with code ${code}`);
+            const logContent = fs.readFileSync(logFilePath, "utf8");
+            console.error(`PhotoRec log: ${logContent}`);
+            res.status(500).send(`PhotoRec exited with code ${code}\n${logContent}`);
+            return;
           }
 
-          try {
-            for (const filePath of recoveredFiles) {
-              const filename = path.basename(filePath);
-              const destinationPath = path.join(recoveredDir, filename);
-              console.log(`Moving file to: ${destinationPath}`);
+          setTimeout(async () => {
+            const getAllFiles = (dirPath, arrayOfFiles) => {
+              let files = fs.readdirSync(dirPath);
 
-              fs.renameSync(filePath, destinationPath);
+              arrayOfFiles = arrayOfFiles || [];
 
-              console.log(`Inserting into DB - File: ${filename}, Path: ${destinationPath}`);
+              files.forEach((file) => {
+                if (fs.statSync(path.join(dirPath, file)).isDirectory()) {
+                  arrayOfFiles = getAllFiles(path.join(dirPath, file), arrayOfFiles);
+                } else {
+                  arrayOfFiles.push(path.join(dirPath, file));
+                }
+              });
 
-              await Output.create({ upload_id: uploadId, filename, file_path: destinationPath });
+              return arrayOfFiles;
+            };
+
+            const recoveredFiles = getAllFiles(outputDir);
+            console.log(`Recovered files: ${recoveredFiles}`);
+
+            if (recoveredFiles.length === 0) {
+              console.error("No files recovered by PhotoRec.");
+              return res.status(500).send("No files recovered");
             }
-            fs.unlinkSync(tempFilePath);
-            fs.rmSync(outputDir, { recursive: true, force: true });
 
-            res.redirect(`/results/${uploadId}`);
-          } catch (err) {
-            console.error("Error inserting recovered files:", err);
-            res.status(500).send("Internal Server Error");
-          }
-        }, 5000); // 5초 대기 후 파일 확인
-      });
-    };
+            try {
+              for (const filePath of recoveredFiles) {
+                const filename = path.basename(filePath);
+                const destinationPath = path.join(recoveredDir, filename);
+                console.log(`Moving file to: ${destinationPath}`);
 
-    runPhotoRec(tempFilePath, outputDir, res, file._id, recoveredDir);
+                fs.renameSync(filePath, destinationPath);
+
+                console.log(`Inserting into DB - File: ${filename}, Path: ${destinationPath}`);
+
+                await Output.create({ upload_id: uploadId, filename, file_path: destinationPath });
+              }
+              fs.unlinkSync(tempFilePath);
+              fs.rmSync(outputDir, { recursive: true, force: true });
+
+              res.redirect(`/results/${uploadId}`);
+            } catch (err) {
+              console.error("Error inserting recovered files:", err);
+              res.status(500).send("Internal Server Error");
+            }
+          }, 5000); // 5초 대기 후 파일 확인
+        });
+      };
+
+      runPhotoRec(tempFilePath, outputDir, res, file._id, recoveredDir);
+    });
+
   } catch (err) {
     console.error("Error fetching upload from DB:", err);
     res.status(500).send("Internal Server Error");
   }
 });
 
+
 app.post("/delete/:id", async (req, res) => {
   const uploadId = req.params.id;
 
   try {
-    await Upload.deleteOne({ _id: uploadId });
+    const file = await Upload.findById(uploadId);
+    if (file) {
+      await gridFSBucket.delete(file.fileId);
+    }
+    await Upload.findByIdAndDelete(uploadId);
     res.redirect("/");
   } catch (err) {
     console.error("Error deleting upload from DB:", err);
@@ -219,33 +240,78 @@ app.post("/delete/:id", async (req, res) => {
   }
 });
 
-app.get("/results/:uploadId", async (req, res) => {
-  const uploadId = req.params.uploadId;
+app.post("/delete-recovered/:folder", async (req, res) => {
+  const folderName = req.params.folder;
+  const outputDir = path.join(tempDir, folderName);
 
-  try {
-    const results = await Output.find({ upload_id: uploadId });
-
-    const files = results.map((row) => ({
-      filename: row.filename,
-      filePath: row.file_path,
-    }));
-    console.log(`Files in results: ${files}`);
-    res.render("results", { files });
-  } catch (err) {
-    console.error("Error fetching results from DB:", err);
-    res.status(500).send("Internal Server Error");
+  if (!fs.existsSync(outputDir)) {
+    return res.status(404).send("Folder not found");
   }
+
+  fs.rmdirSync(outputDir, { recursive: true });
+  res.redirect("/");
 });
 
-app.get("/download/:uploadId/:filename", (req, res) => {
-  const uploadId = req.params.uploadId;
-  const filename = req.params.filename;
-  const filePath = path.join(__dirname, "recovered_files", uploadId.toString(), filename);
+app.post("/download/:id", async (req, res) => {
+  const folderName = req.params.id;
+  const outputDir = path.join(tempDir, folderName);
 
-  res.download(filePath, filename, (err) => {
-    if (err) {
-      console.error("Error downloading file:", err);
-      res.status(500).send("Internal Server Error");
-    }
+  if (!fs.existsSync(outputDir)) {
+    return res.status(404).send("File not found");
+  }
+
+  const zip = archiver("zip", {
+    zlib: { level: 9 },
   });
+
+  res.attachment(`${folderName}.zip`);
+
+  zip.on("finish", async () => {
+    console.log(`Deleted folder: ${outputDir}`);
+  });
+
+  zip.pipe(res);
+
+  const files = fs.readdirSync(outputDir);
+  files.forEach(file => {
+    const filePath = path.join(outputDir, file);
+    const fileStream = fs.createReadStream(filePath);
+    zip.append(fileStream, { name: file });
+  });
+
+  zip.finalize();
+});
+
+io.on("connection", (socket) => {
+  console.log("Client connected");
+
+  const shell = process.env.SHELL || "bash";
+  const ptyProcess = pty.spawn(shell, [], {
+    name: "xterm-color",
+    cols: 80,
+    rows: 24,
+    cwd: process.env.HOME,
+    env: process.env
+  });
+
+  ptyProcess.on("data", (data) => {
+    socket.emit("output", data);
+  });
+
+  socket.on("input", (input) => {
+    ptyProcess.write(input);
+  });
+
+  socket.on("resize", (size) => {
+    ptyProcess.resize(size.cols, size.rows);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected");
+    ptyProcess.kill();
+  });
+});
+
+server.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}/`);
 });
